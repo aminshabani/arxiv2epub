@@ -22,6 +22,7 @@ from .images import rasterize_figure
 log = logging.getLogger(__name__)
 
 LTX_NS = "http://dlmf.nist.gov/LaTeXML"
+XML_ID = "{http://www.w3.org/XML/1998/namespace}id"
 WEB_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif"}
 CONVERTIBLE_EXTS = {".pdf", ".eps", ".ps", ".svg"}
 
@@ -58,11 +59,59 @@ def _count(log_path: Path) -> tuple[int, int]:
     )
 
 
+_PICTURE_IMAGE = re.compile(r"\\begin\{[Oo]verpic\}(?:\[[^\]]*\])?\{([^}]*)\}")
+
+
+def replace_pictures(tree: etree._ElementTree) -> int:
+    """Swap leftover <picture> elements for their base image, or drop them.
+
+    latexmlpost can only rasterize pictures with Perl's Image::Magick; without it
+    the whole post-processing run silently produces no output. Pictures are
+    normally pre-rendered (see prerender.py), so this is only a safety net.
+    """
+    n = 0
+    for pic in list(tree.iter(f"{{{LTX_NS}}}picture")):
+        m = _PICTURE_IMAGE.search(pic.get("tex") or "")
+        parent = pic.getparent()
+        if m:
+            g = etree.Element(f"{{{LTX_NS}}}graphics", graphic=m.group(1), candidates=m.group(1))
+            if pic.get(XML_ID):
+                g.set(XML_ID, pic.get(XML_ID))
+            g.tail = pic.tail
+            parent.replace(pic, g)
+        else:
+            if pic.tail:
+                prev = pic.getprevious()
+                if prev is not None:
+                    prev.tail = (prev.tail or "") + pic.tail
+                else:
+                    parent.text = (parent.text or "") + pic.tail
+            parent.remove(pic)
+        n += 1
+    return n
+
+
+def _resolve_candidates(g: etree._Element, src_dir: Path) -> None:
+    """Fill in candidates for a graphic given without extension (our picture fallback)."""
+    if g.get("candidates"):
+        cand = g.get("candidates")
+        if (src_dir / cand).exists() or Path(cand).suffix:
+            return
+    base = g.get("graphic") or ""
+    for ext in (".png", ".jpg", ".jpeg", ".pdf", ".eps"):
+        if (src_dir / f"{base}{ext}").exists():
+            g.set("candidates", f"{base}{ext}")
+            return
+
+
 def convert_figures(xml_path: Path, src_dir: Path) -> int:
     """Rasterize PDF/EPS/SVG graphics referenced by the XML; returns count converted."""
     tree = etree.parse(str(xml_path))
+    if n := replace_pictures(tree):
+        log.warning("%d picture environments could not be pre-rendered; kept base images only", n)
     converted = 0
     for g in tree.iter(f"{{{LTX_NS}}}graphics"):
+        _resolve_candidates(g, src_dir)
         cands = [c for c in (g.get("candidates") or "").split(",") if c]
         if not cands or any(Path(c).suffix.lower() in WEB_IMAGE_EXTS for c in cands):
             continue

@@ -8,8 +8,8 @@ $ arxiv2epub 1706.03762
       Attention Is All You Need
 [2/6] Downloading source
       main file: ms.tex
-[3/6] Typesetting with LaTeX (TikZ pictures, wide tables)
-      0 TikZ pictures, 5 wide tables as images
+[3/6] Typesetting with LaTeX (pictures, wide tables)
+      0 pictures, 5 wide tables as images
 [4/6] Converting with LaTeXML (this can take a minute)
 [5/6] Rendering math and figures
       10 chapters, 80 formula images, 12 figures
@@ -26,7 +26,8 @@ Then send the file to your Kindle with [Send to Kindle](https://www.amazon.com/s
 1. Downloads the LaTeX source from `arxiv.org/src/<id>` (cached in `~/.cache/arxiv2epub`)
    and metadata from the arXiv API.
 2. Typesets some pieces with real LaTeX before conversion:
-   - TikZ/pgfplots pictures, because LaTeXML's pgf support is very slow and often inaccurate
+   - pictures (TikZ/pgfplots, `picture`, `overpic`), because LaTeXML's pgf support is very
+     slow and often inaccurate, and it can only rasterize `picture` with ImageMagick
    - tables too wide for an e-reader screen. These become images you can long-press to zoom.
      Narrow tables stay as text.
 3. Converts the document with [LaTeXML](https://math.nist.gov/~BMiller/LaTeXML/), the same
@@ -34,7 +35,7 @@ Then send the file to your Kindle with [Send to Kindle](https://www.amazon.com/s
    Lightweight stand-in bindings (`src/arxiv2epub/assets/stubs/`) replace packages that
    LaTeXML otherwise interprets from source for minutes:
    - `pgf`/`tikz`, after the pictures have been pre-rendered
-   - `expl3`, `xparse` and `xpatch`: LaTeXML 0.8.8 hangs on TeX Live 2026's expl3 kernel,
+   - `expl3`, `xparse`, `xpatch`, `lipsum` and `l3keys2e`: LaTeXML 0.8.8 hangs on TeX Live 2026's expl3 kernel,
      and bindings like `siunitx` and `tcolorbox` load it
    - `tcolorbox`: boxes become bordered, reflowable blocks, and `\newtcbtheorem` becomes
      normal numbered theorems

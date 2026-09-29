@@ -17,7 +17,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 from .arxiv import Metadata
-from .images import downscale, shrink
+from .images import ImageTooLarge, downscale, shrink
 from .mathrender import Formula, Rendered, render_formulas
 
 log = logging.getLogger(__name__)
@@ -154,8 +154,14 @@ def _collect_images(soup: BeautifulSoup, html_dir: Path, out_dir: Path) -> list[
             dest = out_dir / key
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, dest)
-            downscale(dest)
-            final = shrink(dest)
+            try:
+                downscale(dest)
+                final = shrink(dest)
+            except (ImageTooLarge, OSError) as e:  # OSError: corrupt/truncated file
+                log.warning("dropping image %r: %s", src[:80], e)
+                dest.unlink(missing_ok=True)
+                img.decompose()
+                continue
             href = str(final.relative_to(out_dir))
             resources[key] = Resource(href, final, _MEDIA[final.suffix.lower()])
         img["src"] = resources[key].href

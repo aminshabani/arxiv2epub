@@ -1,0 +1,9 @@
+# Stub l3keys2e (raw source is expl3; see expl3.sty.ltxml).
+package LaTeXML::Package::Pool;
+use strict;
+use warnings;
+use LaTeXML::Package;
+DefMacro('\ProcessKeysOptions{}',        '');
+DefMacro('\ProcessKeysPackageOptions{}', '');
+DefMacro('\ProcessKeyOptions[]',         '');
+1;

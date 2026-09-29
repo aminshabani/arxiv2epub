@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pymupdf
 
+from .images import safe_dpi
 from .texsnippets import BORDER_PT, compile_snippets
 
 log = logging.getLogger(__name__)
@@ -61,7 +62,8 @@ def render_formulas(
             doc = docs.setdefault(p.pdf, pymupdf.open(p.pdf))
             page = doc[p.page]
             path = out_dir / f"m{i}.png"
-            page.get_pixmap(dpi=RENDER_DPI, colorspace=pymupdf.csGRAY, alpha=False).save(path)
+            dpi = safe_dpi(page.rect, RENDER_DPI)  # only binds for runaway snippets
+            page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY, alpha=False).save(path)
             results.append(Rendered(
                 path=path,
                 width_em=page.rect.width / p.fontsize,

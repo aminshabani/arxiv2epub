@@ -1,0 +1,19 @@
+# Stub lipsum. LaTeXML's binding reads the raw lipsum.sty, which is expl3 code
+# (see expl3.sty.ltxml). Placeholder text only needs to be placeholder text.
+package LaTeXML::Package::Pool;
+use strict;
+use warnings;
+use LaTeXML::Package;
+
+my $a2e_lorem = 'Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Ut purus elit, '
+  . 'vestibulum ut, placerat ac, adipiscing vitae, felis. Curabitur dictum gravida mauris. '
+  . 'Nam arcu libero, nonummy eget, consectetuer id, vulputate a, magna.';
+DefMacro('\lipsum OptionalMatch:* []',    $a2e_lorem . '\par');
+DefMacro('\lipsumexp OptionalMatch:* []', $a2e_lorem);
+DefMacro('\unpacklipsum OptionalMatch:* []', '');
+DefMacro('\setlipsum{}',                  '');
+DefMacro('\SetLipsumText{}',              '');
+DefMacro('\SetLipsumParListStart{}',      '');
+DefMacro('\SetLipsumParListEnd{}',        '');
+DefMacro('\SetLipsumParListSurrounders{}{}', '');
+1;

@@ -64,10 +64,10 @@ def convert(args: argparse.Namespace) -> int:
         check_convertible(main_tex)
         print(f"      main file: {main_tex.relative_to(src)}")
 
-        print("[3/6] Typesetting with LaTeX (TikZ pictures, wide tables)")
+        print("[3/6] Typesetting with LaTeX (pictures, wide tables)")
         aux = build_aux(main_tex, work / "auxbuild", timeout=args.timeout)
         counts = prerender(main_tex, work / "prebuild", aux=aux, timeout=args.timeout)
-        print(f"      {counts['tikz']} TikZ pictures, {counts['tables']} wide tables as images")
+        print(f"      {counts['pictures']} pictures, {counts['tables']} wide tables as images")
 
         print("[4/6] Converting with LaTeXML (this can take a minute)")
         try:

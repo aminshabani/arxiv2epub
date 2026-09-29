@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import math
 import re
 import shutil
 import subprocess
@@ -14,8 +15,43 @@ from PIL import Image
 
 FIGURE_DPI = 200
 MAX_WIDTH = 1600
+# Hard ceiling on pixels we render or decode (~120 MB as RGB). Figures in the
+# source are untrusted: a 13000x13000 PNG or a PDF page several metres wide
+# would otherwise be decoded in full before being shrunk.
+MAX_PIXELS = 40_000_000
+Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 
-_LEN = re.compile(r"(-?[\d.]+)\s*pt")
+
+class ImageTooLarge(Exception):
+    pass
+
+
+def safe_dpi(rect: pymupdf.Rect, dpi: float, max_width: int | None = None) -> float:
+    """Lower ``dpi`` so rendering ``rect`` (in pt) stays within ``MAX_PIXELS``.
+
+    With ``max_width``, also avoid rendering wider than the image will end up.
+    """
+    w_in, h_in = rect.width / 72, rect.height / 72
+    if w_in <= 0 or h_in <= 0:
+        return dpi
+    dpi = min(dpi, math.sqrt(MAX_PIXELS / (w_in * h_in)))
+    if max_width:
+        # Render at 2x the final width at most so the downscale stays sharp.
+        dpi = min(dpi, 2 * max_width / w_in)
+    return dpi
+
+
+def _open(path: Path) -> Image.Image:
+    """Open an image lazily (header only); callers check its size before decoding.
+
+    Pillow's own bomb check runs at open time and would also reject big JPEGs,
+    which :func:`downscale` can shrink cheaply, so it is lifted here.
+    """
+    limit, Image.MAX_IMAGE_PIXELS = Image.MAX_IMAGE_PIXELS, None
+    try:
+        return Image.open(path)
+    finally:
+        Image.MAX_IMAGE_PIXELS = limit
 
 
 def _parse_box(options: str, key: str) -> list[float] | None:
@@ -53,7 +89,8 @@ def rasterize_figure(src: Path, dest: Path, options: str = "") -> Path:
         clip = clip & rect
         if clip.is_empty:
             clip = None
-    pix = page.get_pixmap(dpi=FIGURE_DPI, clip=clip, alpha=False)
+    dpi = safe_dpi(clip or rect, FIGURE_DPI, MAX_WIDTH)
+    pix = page.get_pixmap(dpi=dpi, clip=clip, alpha=False)
     dest.parent.mkdir(parents=True, exist_ok=True)
     pix.save(dest)
     doc.close()
@@ -73,13 +110,23 @@ def _eps_to_pdf(src: Path, dest: Path) -> None:
 
 
 def downscale(path: Path, max_width: int = MAX_WIDTH) -> None:
-    """Shrink an image in place if it is wider than ``max_width``."""
-    with Image.open(path) as im:
-        if im.width <= max_width:
-            return
-        h = round(im.height * max_width / im.width)
+    """Shrink an image in place if it is wider than ``max_width``.
+
+    JPEGs are decoded at reduced scale, so even huge photos are cheap. Anything
+    still above ``MAX_PIXELS`` raises :class:`ImageTooLarge` without decoding.
+    """
+    with _open(path) as im:
+        w, h = im.size
         fmt = im.format
-        small = im.resize((max_width, h), Image.LANCZOS)
+        target = (max_width, round(h * max_width / w)) if w > max_width else im.size
+        if fmt == "JPEG":
+            im.draft(im.mode, target)  # libjpeg decodes at 1/2, 1/4 or 1/8 scale
+        if im.width * im.height > MAX_PIXELS:
+            raise ImageTooLarge(f"{w}x{h} pixels")
+        if w <= max_width:
+            return
+        im.thumbnail(target, Image.LANCZOS)
+        small = im.copy()
     small.save(path, format=fmt)
 
 
@@ -93,7 +140,9 @@ def shrink(path: Path) -> Path:
     """
     if path.suffix.lower() != ".png" or path.stat().st_size < JPEG_THRESHOLD:
         return path
-    with Image.open(path) as im:
+    with _open(path) as im:
+        if im.width * im.height > MAX_PIXELS:
+            raise ImageTooLarge(f"{im.width}x{im.height} pixels")
         if im.mode in ("RGBA", "LA", "P"):
             if im.mode == "P":
                 im = im.convert("RGBA")

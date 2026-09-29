@@ -10,8 +10,30 @@ import tarfile
 from pathlib import Path
 
 
+# Limits for untrusted bundles (the largest real arXiv sources are a few hundred MB).
+MAX_UNPACKED_BYTES = 1 << 30
+MAX_MEMBERS = 10_000
+
+
 class SourceError(Exception):
     pass
+
+
+def _gunzip(data: bytes) -> bytes:
+    """Decompress gzip data, refusing to expand past ``MAX_UNPACKED_BYTES``."""
+    with gzip.GzipFile(fileobj=io.BytesIO(data)) as f:
+        out = f.read(MAX_UNPACKED_BYTES + 1)
+    if len(out) > MAX_UNPACKED_BYTES:
+        raise SourceError(f"Source bundle expands to more than {MAX_UNPACKED_BYTES >> 20} MB; refusing.")
+    return out
+
+
+def _check_tar(t: tarfile.TarFile) -> None:
+    members = t.getmembers()
+    if len(members) > MAX_MEMBERS:
+        raise SourceError(f"Source bundle has more than {MAX_MEMBERS} files; refusing.")
+    if sum(m.size for m in members if m.isfile()) > MAX_UNPACKED_BYTES:
+        raise SourceError(f"Source bundle expands to more than {MAX_UNPACKED_BYTES >> 20} MB; refusing.")
 
 
 def detect_kind(data: bytes) -> str:
@@ -19,7 +41,7 @@ def detect_kind(data: bytes) -> str:
     if data.startswith(b"%PDF"):
         return "pdf"
     if data[:2] == b"\x1f\x8b":
-        inner = gzip.decompress(data)
+        inner = _gunzip(data)
         if _is_tar(inner):
             return "tar.gz"
         if inner.startswith(b"%PDF"):
@@ -55,9 +77,10 @@ def extract(bundle: Path, dest: Path) -> Path:
         )
     if kind in ("tar.gz", "tar"):
         with tarfile.open(fileobj=io.BytesIO(data)) as t:
+            _check_tar(t)
             t.extractall(dest, filter="data")  # rejects path traversal / links out
     else:
-        text = gzip.decompress(data) if kind == "gz" else data
+        text = _gunzip(data) if kind == "gz" else data
         (dest / "main.tex").write_bytes(text)
     return dest
 

@@ -43,3 +43,21 @@ def test_drop_expl3_packages(tmp_path, monkeypatch):
     assert main.read_text() == (
         "\\usepackage{amsmath,siunitx}\n\n% \\usepackage{fontawesome5}\n\\usepackage{fancyx}\n"
     )
+
+
+def test_replace_pictures():
+    from lxml import etree
+
+    from arxiv2epub.latexml import LTX_NS, replace_pictures
+
+    xml = (
+        f'<document xmlns="{LTX_NS}"><para><p>A '
+        '<picture tex="\\begin{overpic}[width=5pt]{figs/f.png}\\put(1,2){x}\\end{overpic}" '
+        'xml:id="p1"/> B <picture tex="\\begin{picture}(1,1)\\end{picture}"/> C</p></para></document>'
+    )
+    tree = etree.ElementTree(etree.fromstring(xml))
+    assert replace_pictures(tree) == 2
+    out = etree.tostring(tree, encoding="unicode")
+    assert "picture" not in out
+    assert 'graphic="figs/f.png"' in out and 'xml:id="p1"' in out
+    assert "A <graphics" in out and "/> B  C</p>" in out

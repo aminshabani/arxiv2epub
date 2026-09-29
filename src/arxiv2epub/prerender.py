@@ -1,8 +1,9 @@
 """Pre-render TikZ pictures and wide tables with real LaTeX before LaTeXML.
 
-* TikZ/pgfplots: LaTeXML interprets pgf in Perl, which is extremely slow (a few
-  pgfplots axes can take >10 minutes) and often inaccurate. Every
-  ``tikzpicture`` is typeset with pdflatex instead.
+* Pictures: LaTeXML interprets pgf in Perl, which is extremely slow (a few
+  pgfplots axes can take >10 minutes) and often inaccurate, and it can only
+  turn ``picture``/``overpic`` into images with ImageMagick. Every
+  ``tikzpicture``, ``picture`` and ``overpic`` is typeset with pdflatex instead.
 * Tables: e-readers can't scroll horizontally, so a table wider than a
   screen gets clipped. Each ``tabular`` is typeset and measured; the ones wider
   than ``MAX_TABLE_EM`` become images (readers can long-press to zoom), the rest
@@ -21,7 +22,7 @@ from pathlib import Path
 
 import pymupdf
 
-from .images import FIGURE_DPI, downscale, shrink
+from .images import FIGURE_DPI, MAX_WIDTH, downscale, safe_dpi, shrink
 from .texsnippets import _read_group, compile_snippets, scrape_macros, split_document, strip_comments
 
 log = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ OUT_SUBDIR = "a2e_img"
 MAX_TABLE_EM = 30  # roughly a Kindle line at a typical font size
 MIN_IMAGE_COLUMNS = 3  # tables with fewer columns wrap fine as HTML, keep them as text
 
-TIKZ_ENVS = ("tikzpicture",)
+PICTURE_ENVS = ("tikzpicture", "picture", "overpic", "Overpic")
 TABLE_ENVS = ("tabular", "tabular*", "tabularx", "tabulary")
 
 # Body-level commands a picture may depend on (tables read earlier, styles, colours).
@@ -81,7 +82,7 @@ def find_envs(text: str, names: tuple[str, ...]) -> list[tuple[int, int]]:
 
 
 def find_pictures(text: str) -> list[tuple[int, int]]:
-    return find_envs(text, TIKZ_ENVS)
+    return find_envs(text, PICTURE_ENVS)
 
 
 def _setup_commands(text: str) -> list[str]:
@@ -166,7 +167,7 @@ class _Piece:
     file: Path
     start: int
     end: int
-    kind: str  # "tikz" | "table"
+    kind: str  # "picture" | "table"
 
 
 def _collect(main_tex: Path, texts: dict[Path, str]) -> tuple[list[_Piece], list[str]]:
@@ -179,16 +180,16 @@ def _collect(main_tex: Path, texts: dict[Path, str]) -> tuple[list[_Piece], list
             # '#' means we're inside a macro definition: leave those alone.
             return span[0] >= body_start and "#" not in text[span[0]:span[1]]
 
-        tikz = [s for s in find_envs(text, TIKZ_ENVS) if usable(s)]
+        pics = [s for s in find_envs(text, PICTURE_ENVS) if usable(s)]
         tables = [
             s for s in find_envs(text, TABLE_ENVS)
-            if usable(s) and not any(a <= s[0] < b for a, b in tikz)
+            if usable(s) and not any(a <= s[0] < b for a, b in pics)
             and count_columns(text[s[0]:s[1]]) >= MIN_IMAGE_COLUMNS
         ]
-        pieces += [_Piece(p, a, b, "tikz") for a, b in tikz]
+        pieces += [_Piece(p, a, b, "picture") for a, b in pics]
         pieces += [_Piece(p, a, b, "table") for a, b in tables]
         rest, last = [], body_start
-        for a, b in sorted(tikz + tables):
+        for a, b in sorted(pics + tables):
             if a < last:
                 continue
             rest.append(text[last:a])
@@ -203,19 +204,19 @@ def _collect(main_tex: Path, texts: dict[Path, str]) -> tuple[list[_Piece], list
 
 def prerender(main_tex: Path, build_dir: Path, aux: Path | None = None,
               timeout: int = 600) -> dict[str, int]:
-    """Replace TikZ pictures and wide tables in the source with images.
+    """Replace pictures (TikZ, picture, overpic) and wide tables in the source with images.
 
-    Returns counts: {"tikz": n, "tables": n, "failed": n}.
+    Returns counts: {"pictures": n, "tables": n, "failed": n}.
     """
     src_dir = main_tex.parent
     files = sorted(p for p in src_dir.rglob("*.tex") if not p.name.startswith("a2e_"))
     texts = {p: p.read_text(errors="replace") for p in files}
     pieces, setup = _collect(main_tex, texts)
-    counts = {"tikz": 0, "tables": 0, "failed": 0}
+    counts = {"pictures": 0, "tables": 0, "failed": 0}
     if not pieces:
         return counts
 
-    log.info("typesetting %d TikZ pictures / tables", len(pieces))
+    log.info("typesetting %d pictures / tables", len(pieces))
     placed = compile_snippets(
         [texts[pc.file][pc.start:pc.end] for pc in pieces], main_tex, build_dir,
         job="a2e_pre", setup="\n".join(setup), aux=aux, timeout=timeout,
@@ -236,13 +237,13 @@ def prerender(main_tex: Path, build_dir: Path, aux: Path | None = None,
                 doc = docs.setdefault(pl.pdf, pymupdf.open(pl.pdf))
                 page = doc[pl.page]
                 png = out_dir / f"{pc.kind}{i}.png"
-                page.get_pixmap(dpi=FIGURE_DPI, alpha=False).save(png)
+                page.get_pixmap(dpi=safe_dpi(page.rect, FIGURE_DPI, MAX_WIDTH), alpha=False).save(png)
                 downscale(png)
                 final = shrink(png)
                 # TeX resolves graphics paths from the main file's directory.
                 rel = final.relative_to(src_dir).as_posix()
                 repl = rf"\includegraphics[width={page.rect.width:.1f}pt]{{{rel}}}"
-                counts["tikz" if pc.kind == "tikz" else "tables"] += 1
+                counts["pictures" if pc.kind == "picture" else "tables"] += 1
             replacements.setdefault(pc.file, []).append((pc.start, pc.end, repl))
     finally:
         for d in docs.values():
@@ -260,5 +261,5 @@ def prerender(main_tex: Path, build_dir: Path, aux: Path | None = None,
     if replacements and not re.search(r"\\usepackage(\[[^\]]*\])?\{[^}]*\bgraphicx\b", strip_comments(pre)):
         main_tex.write_text(pre + "\\usepackage{graphicx}\n" + rest)
     if counts["failed"]:
-        log.warning("%d TikZ pictures could not be rendered", counts["failed"])
+        log.warning("%d pictures could not be rendered", counts["failed"])
     return counts
