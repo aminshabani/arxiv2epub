@@ -61,3 +61,15 @@ def test_replace_pictures():
     assert "picture" not in out
     assert 'graphic="figs/f.png"' in out and 'xml:id="p1"' in out
     assert "A <graphics" in out and "/> B  C</p>" in out
+
+
+def test_bibliography_args(tmp_path):
+    from arxiv2epub.latexml import BINDINGS_DIR, bibliography_args
+
+    main = tmp_path / "main.tex"
+    main.write_text("\\bibliography{refs}")
+    (tmp_path / "refs.bib").write_text("@misc{a,title={A}}")
+    assert bibliography_args(main) == []  # no .bbl: LaTeXML processes the .bib
+    (tmp_path / "main.bbl").write_text("\\begin{thebibliography}{1}\\end{thebibliography}")
+    assert bibliography_args(main) == [f"--path={BINDINGS_DIR}", "--preload=a2e_usebbl.sty"]
+    assert (BINDINGS_DIR / "a2e_usebbl.sty.ltxml").is_file()

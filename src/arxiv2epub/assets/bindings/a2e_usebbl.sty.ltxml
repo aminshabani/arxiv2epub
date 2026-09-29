@@ -1,0 +1,10 @@
+# Preloaded when the source ships <jobname>.bbl (see latexml.py:bibliography_args).
+# LaTeXML otherwise prefers the .bib files, which latexmlpost then re-expands
+# with the paper's whole preamble: slow, sometimes endless, and not formatted
+# by the paper's own .bst like the .bbl is.
+package LaTeXML::Package::Pool;
+use strict;
+use warnings;
+use LaTeXML::Package;
+AssignValue(NO_BIBTEX => 1, 'global');
+1;

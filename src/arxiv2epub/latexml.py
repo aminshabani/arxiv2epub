@@ -137,6 +137,7 @@ def convert_figures(xml_path: Path, src_dir: Path) -> int:
 
 
 STUBS_DIR = Path(__file__).parent / "assets" / "stubs"
+BINDINGS_DIR = Path(__file__).parent / "assets" / "bindings"
 
 # Optional stub bindings: used only when the source doesn't need the real thing.
 _NEEDS_REAL = {
@@ -157,6 +158,13 @@ def stub_paths(src_dir: Path) -> list[Path]:
         if not any(pattern.search(t) for t in texts):
             paths.append(STUBS_DIR / name)
     return paths
+
+
+def bibliography_args(main_tex: Path) -> list[str]:
+    """Make LaTeXML use the shipped ``.bbl`` rather than re-processing the ``.bib`` files."""
+    if not main_tex.with_suffix(".bbl").is_file():
+        return []
+    return [f"--path={BINDINGS_DIR}", "--preload=a2e_usebbl.sty"]
 
 
 _EXPL3_SOURCE = re.compile(r"\\ProvidesExplPackage|\\RequirePackage\s*(\[[^\]]*\])?\{[^}]*\bexpl3\b|\\ExplSyntaxOn")
@@ -262,6 +270,7 @@ def run_latexml(main_tex: Path, work: Path, timeout: int = 600) -> LatexmlResult
             log.info("not loading expl3-based packages in LaTeXML: %s", ", ".join(dropped))
     cmd = ["latexml", main_tex.name, f"--dest={xml}", "--nocomments", "--noparse"]
     cmd += [f"--path={p}" for p in stubs]
+    cmd += bibliography_args(main_tex)
     _run(cmd, src_dir, timeout, log_path)
     if not xml.exists():
         raise LatexmlError(f"LaTeXML could not convert the paper:\n{_fatal_summary(log_path)}")
