@@ -1,0 +1,17 @@
+# Stub expl3. LaTeXML 0.8.8 hangs interpreting TeX Live 2026's expl3-code.tex,
+# and several of its own bindings (siunitx, tcolorbox, lipsum, ...) require
+# expl3 even though their implementation is native Perl. Provide just the
+# document-level switches; only used when the paper doesn't write expl3 itself.
+package LaTeXML::Package::Pool;
+use strict;
+use warnings;
+use LaTeXML::Package;
+
+RawTeX(<<'EOTEX');
+\def\ExplSyntaxOn{\catcode`\_=11 \catcode`\:=11 \catcode`\ =9 \catcode`\~=10 }
+\def\ExplSyntaxOff{\catcode`\_=8 \catcode`\:=12 \catcode`\ =10 \catcode`\~=13 }
+\def\ProvidesExplPackage#1#2#3#4{}
+\def\ProvidesExplClass#1#2#3#4{}
+\def\ProvidesExplFile#1#2#3#4{}
+EOTEX
+1;

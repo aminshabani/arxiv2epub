@@ -1,0 +1,84 @@
+# Stub tcolorbox. LaTeXML's binding loads expl3 plus the raw tcolorbox sources
+# (which hang). On an e-reader a box is best as a plain bordered block, so:
+#   \newtcolorbox{name}[n][default]{opts}  -> environment rendering a box,
+#                                              with its title= if given
+#   \begin{tcolorbox}[opts] ... \end{tcolorbox}
+#   \newtcbtheorem[init]{name}{Display}{opts}{prefix}
+#       -> numbered theorem env name{title}{label} (+ unnumbered name*{title}); labels
+#          become prefix:label and "use counter*=x" shares x's counter
+package LaTeXML::Package::Pool;
+use strict;
+use warnings;
+use LaTeXML::Package;
+
+RequirePackage('xcolor');
+RequirePackage('amsthm');
+
+DefEnvironment('{a2etcbox}', "<ltx:quote class='a2e-box'>#body</ltx:quote>");
+DefMacro('\tcbset{}',        '');
+DefMacro('\tcbuselibrary{}', '');
+DefMacro('\tcbox[]{}',       '#2');
+DefMacro('\tcbtitle',        '');
+
+# Split "k1=v1, k2={v,2}" at top-level commas into a hash.
+sub a2e_tcb_opts {
+  my ($s) = @_;
+  my (%h, $depth, $cur);
+  $depth = 0; $cur = '';
+  foreach my $c (split(//, $s . ',')) {
+    if    ($c eq '{') { $depth++; }
+    elsif ($c eq '}') { $depth--; }
+    if ($c eq ',' && $depth == 0) {
+      if ($cur =~ /^\s*([^=]+?)\s*(?:=\s*(.*?))?\s*$/s) {
+        my ($k, $v) = ($1, defined $2 ? $2 : '');
+        $v =~ s/^\{(.*)\}$/$1/s;
+        $h{$k} = $v; }
+      $cur = ''; }
+    else { $cur .= $c; } }
+  return %h; }
+
+# Title markup (bold line) from a box's options, or ''.
+sub a2e_tcb_title {
+  my (%o) = @_;
+  my $t = $o{title} // '';
+  my $lead = '';
+  if (defined $o{'before upper'} && $o{'before upper'} !~ /\\(tcb|setlength|vspace|par)/) {
+    $lead = $o{'before upper'}; }
+  return ($t ne '' ? "\\textbf{$t}\\par " : '') . $lead; }
+
+DefMacro('\newtcolorbox[]{}[][]{}', sub {
+    my ($gullet, $init, $name, $nargs, $default, $opts) = @_;
+    my %o     = a2e_tcb_opts(UnTeX($opts));
+    my $args  = ToString($nargs || '') ne '' ? '[' . ToString($nargs) . ']' : '';
+    $args .= '[' . ToString($default) . ']' if $default;
+    my $n     = ToString($name);
+    return Tokenize("\\newenvironment{$n}${args}{\\begin{a2etcbox}" . a2e_tcb_title(%o)
+        . "}{\\end{a2etcbox}}")->unlist; });
+DefMacro('\renewtcolorbox', '\newtcolorbox');
+DefMacro('\DeclareTColorBox', '\newtcolorbox');
+
+DefEnvironment('{tcolorbox}[]', "<ltx:quote class='a2e-box'>#body</ltx:quote>");
+
+my $a2e_tcb_count = 0;
+
+sub a2e_letters {    # 1 -> a, 26 -> z, 27 -> ba ...
+  my ($n) = @_;
+  my $s = '';
+  do { $s = chr(97 + $n % 26) . $s; $n = int($n / 26); } while ($n > 0);
+  return $s; }
+
+DefMacro('\newtcbtheorem[]{}{}{}{}', sub {
+    my ($gullet, $init, $name, $display, $opts, $prefix) = @_;
+    my ($n, $d, $p) = map { ToString($_) } ($name, $display, $prefix);
+    my $env     = "a2etcb" . a2e_letters($a2e_tcb_count++);
+    my $counter = '';
+    if (ToString($init || '') =~ /use counter(?:\*| from)?\s*=\s*([A-Za-z]+)/) {
+      $counter = "[$1]" if LookupDefinition(T_CS("\\c\@$1")) || LookupValue("\\c\@$1"); }
+    my $label = $p ne '' ? "$p:" : '';
+    # (theorems can't sit inside the box's quote block; CSS styles them instead)
+    return Tokenize(
+          "\\newtheorem{$env}$counter\{$d\}\\newtheorem*{${env}s}{$d}"
+        . "\\newenvironment{$n}[2]{\\begin{$env}[#1]\\label{$label#2}}{\\end{$env}}"
+        . "\\newenvironment{$n*}[1]{\\begin{${env}s}[#1]}{\\end{${env}s}}"
+    )->unlist; });
+1;

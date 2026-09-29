@@ -94,7 +94,7 @@ _NEEDS_REAL = {
     # real pgf is needed for TikZ that wasn't pre-rendered (e.g. tikzcd inside math)
     "tikz": re.compile(r"\\begin\s*\{(tikzpicture|tikzcd)\}|\\tikz\b(?!set|style|external)"),
     # real expl3 is needed if the paper itself programs in expl3
-    "xparse": re.compile(r"\\ExplSyntaxOn"),
+    "expl3": re.compile(r"\\ExplSyntaxOn"),
 }
 
 
@@ -108,6 +108,84 @@ def stub_paths(src_dir: Path) -> list[Path]:
         if not any(pattern.search(t) for t in texts):
             paths.append(STUBS_DIR / name)
     return paths
+
+
+_EXPL3_SOURCE = re.compile(r"\\ProvidesExplPackage|\\RequirePackage\s*(\[[^\]]*\])?\{[^}]*\bexpl3\b|\\ExplSyntaxOn")
+_USEPACKAGE = re.compile(r"^([^%\n]*?\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*)\{([^}]*)\}", re.MULTILINE)
+
+
+def latexml_binding_dir() -> Path | None:
+    """LaTeXML's own Package/ directory (where *.sty.ltxml bindings live)."""
+    exe = shutil.which("latexml")
+    if exe is None:
+        return None
+    try:  # Homebrew installs a wrapper script that sets PERL5LIB
+        m = re.search(r'PERL5LIB="([^"]+)"', Path(exe).read_text(errors="replace")[:2000])
+    except OSError:
+        m = None
+    libs = m.group(1).split(":") if m else []
+    try:
+        out = subprocess.run(
+            ["perl", *[f"-I{lib}" for lib in libs], "-MLaTeXML::Package", "-e",
+             'print $INC{"LaTeXML/Package.pm"}'], capture_output=True, text=True, timeout=30,
+        ).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    d = Path(out).with_suffix("") if out else None  # .../LaTeXML/Package.pm -> .../LaTeXML/Package
+    return d if d and d.is_dir() else None
+
+
+def _has_binding(pkg: str, binding_dirs: list[Path]) -> bool:
+    return any((d / f"{pkg}.sty.ltxml").exists() for d in binding_dirs)
+
+
+def _is_expl3_package(pkg: str) -> bool:
+    try:
+        path = subprocess.run(["kpsewhich", f"{pkg}.sty"], capture_output=True, text=True,
+                              timeout=30).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if not path:
+        return False
+    return bool(_EXPL3_SOURCE.search(Path(path).read_text(errors="replace")[:20000]))
+
+
+def drop_expl3_packages(src_dir: Path, stub_dirs: list[Path]) -> list[str]:
+    """Remove \\usepackage entries LaTeXML would have to interpret as raw expl3.
+
+    Such packages (fontawesome5, ...) have no LaTeXML binding and are written in
+    expl3, which LaTeXML either hangs on or (with our expl3 stub) rejects with a
+    flood of errors. Without them, their commands are merely undefined where used.
+    Returns the dropped package names.
+    """
+    builtin = latexml_binding_dir()
+    if builtin is None:
+        return []
+    binding_dirs = [*stub_dirs, builtin]
+    dropped: set[str] = set()
+    cache: dict[str, bool] = {}
+
+    def keep(pkg: str) -> bool:
+        if pkg not in cache:
+            cache[pkg] = _has_binding(pkg, binding_dirs) or (src_dir / f"{pkg}.sty").exists() \
+                or not _is_expl3_package(pkg)
+        if not cache[pkg]:
+            dropped.add(pkg)
+        return cache[pkg]
+
+    def repl(m: re.Match) -> str:
+        pkgs = [p.strip() for p in m.group(2).split(",") if p.strip()]
+        kept = [p for p in pkgs if keep(p)]
+        if len(kept) == len(pkgs):
+            return m.group(0)
+        return f"{m.group(1)}{{{','.join(kept)}}}" if kept else ""
+
+    for p in src_dir.rglob("*.tex"):
+        text = p.read_text(errors="replace")
+        new = _USEPACKAGE.sub(repl, text)
+        if new != text:
+            p.write_text(new)
+    return sorted(dropped)
 
 
 def _fatal_summary(log_path: Path) -> str:
@@ -128,8 +206,13 @@ def run_latexml(main_tex: Path, work: Path, timeout: int = 600) -> LatexmlResult
     if html_dir.exists():
         shutil.rmtree(html_dir)
 
+    stubs = stub_paths(src_dir)
+    if STUBS_DIR / "expl3" in stubs:
+        dropped = drop_expl3_packages(src_dir, stubs)
+        if dropped:
+            log.info("not loading expl3-based packages in LaTeXML: %s", ", ".join(dropped))
     cmd = ["latexml", main_tex.name, f"--dest={xml}", "--nocomments", "--noparse"]
-    cmd += [f"--path={p}" for p in stub_paths(src_dir)]
+    cmd += [f"--path={p}" for p in stubs]
     _run(cmd, src_dir, timeout, log_path)
     if not xml.exists():
         raise LatexmlError(f"LaTeXML could not convert the paper:\n{_fatal_summary(log_path)}")

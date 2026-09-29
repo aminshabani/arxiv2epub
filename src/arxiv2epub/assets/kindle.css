@@ -56,6 +56,9 @@ td, th { padding: 0.15em 0.4em; text-align: left; vertical-align: top; }
 .ltx_proof { margin: 0.6em 0; }
 .ltx_proof .ltx_title { display: inline; font-size: 1em; font-style: italic; }
 
+/* tcolorbox boxes (see stubs/common/tcolorbox.sty.ltxml) */
+.a2e-box { border: 1px solid black; padding: 0.4em 0.6em; margin: 0.8em 0; page-break-inside: avoid; }
+
 /* Lists */
 ul, ol { margin: 0.4em 0 0.6em 1.4em; padding: 0; }
 .ltx_tag_item { margin-right: 0.3em; }

@@ -34,9 +34,14 @@ Then send the file to your Kindle with [Send to Kindle](https://www.amazon.com/s
    Lightweight stand-in bindings (`src/arxiv2epub/assets/stubs/`) replace packages that
    LaTeXML otherwise interprets from source for minutes:
    - `pgf`/`tikz`, after the pictures have been pre-rendered
-   - `xparse` and `xpatch`, which pull in the expl3 kernel
+   - `expl3`, `xparse` and `xpatch`: LaTeXML 0.8.8 hangs on TeX Live 2026's expl3 kernel,
+     and bindings like `siunitx` and `tcolorbox` load it
+   - `tcolorbox`: boxes become bordered, reflowable blocks, and `\newtcbtheorem` becomes
+     normal numbered theorems
    - `babel`
-   Each stub is only used when the paper doesn't need the real package.
+   Each stub is only used when the paper doesn't need the real package. Other packages
+   written in expl3 with no LaTeXML support (for example `fontawesome5`) are left out of
+   the LaTeXML run, so their commands simply produce nothing.
 4. Renders **every formula with real LaTeX, using the paper's own preamble**, so custom
    macros look exactly like the PDF. Each formula becomes an image sized in `em`, so it
    scales with the reader's font size, and inline math sits on the text baseline.
@@ -86,8 +91,10 @@ The flags are:
   doesn't compile on its own, and is usually rare.
 - **`tikzcd` diagrams inside math still go through LaTeXML's pgf support.** That is slow,
   so pgf isn't stubbed out for those papers.
-- **A paper that programs in expl3 itself (`\ExplSyntaxOn`) is slow.** LaTeXML has to load
-  the whole LaTeX3 kernel, so raise `--timeout` for these.
+- **A paper that programs in expl3 itself (`\ExplSyntaxOn`) will likely time out**, because
+  LaTeXML has to load the whole LaTeX3 kernel.
+- **siunitx v3 commands (`\qty`, `\unit`) are missing.** LaTeXML's siunitx support predates
+  them, so they are dropped.
 - **Tables defined inside macros stay as HTML**, as do tables LaTeX can't typeset on their
   own. On a small screen these can be cramped.
 
