@@ -1,0 +1,18 @@
+# Stub xpatch: the real package is written in expl3 (5+ minutes to interpret in
+# LaTeXML). Patches only tweak formatting, so skip them: \xpatchcmd and friends
+# take 5 arguments {cmd}{search}{replace}{success}{failure}; the pre/append
+# variants take 4.
+package LaTeXML::Package::Pool;
+use strict;
+use warnings;
+use LaTeXML::Package;
+
+RequirePackage('etoolbox');
+foreach my $cmd (qw(xpatchcmd xpatchbibmacro xpatchbibdriver xpatchfieldformat
+  xpatchnameformat xpatchlistformat xpatchindexfieldformat xpatchindexnameformat
+  xpatchindexlistformat)) {
+  DefMacroI(T_CS("\\$cmd"), '{}{}{}{}{}', ''); }
+foreach my $cmd (qw(xpretocmd xapptocmd xpretobibmacro xapptobibmacro)) {
+  DefMacroI(T_CS("\\$cmd"), '{}{}{}{}', ''); }
+DefMacroI(T_CS('\xshowcmd'), '{}', '');
+1;

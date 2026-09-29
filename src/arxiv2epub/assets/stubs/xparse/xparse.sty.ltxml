@@ -1,0 +1,85 @@
+# Native stand-in for xparse. LaTeXML's own binding interprets the whole expl3
+# kernel from source, which takes 5+ minutes. This covers the document-level
+# commands (\NewDocumentCommand & co.) for the common argument types:
+#   m  o  O{default}  s  t<token>  r<open><close>  D<open><close>{default}
+# Only used when the paper itself doesn't use expl3 syntax.
+package LaTeXML::Package::Pool;
+use strict;
+use warnings;
+use LaTeXML::Package;
+
+sub a2e_parse_spec {
+  my ($spec) = @_;
+  my @params;
+  my @chars = split(//, $spec);
+  my $i = 0;
+  while ($i < @chars) {
+    my $c = $chars[$i++];
+    next if $c =~ /\s/ || $c eq '!' || $c eq '+';
+    if    ($c eq 'm') { push(@params, '{}'); }
+    elsif ($c eq 'o') { push(@params, '[]'); }
+    elsif ($c eq 's') { push(@params, 'OptionalMatch:*'); }
+    elsif ($c eq 't') { push(@params, 'OptionalMatch:' . $chars[$i++]); }
+    elsif ($c eq 'O' || $c eq 'D' || $c eq 'r' || $c eq 'R') {
+      my ($open, $close) = ('[', ']');
+      if ($c ne 'O') { $open = $chars[$i++]; $close = $chars[$i++]; }
+      my $default = '';
+      if ($c ne 'r' && $i < @chars && $chars[$i] eq '{') {    # {default}
+        my $depth = 0; $i++;
+        while ($i < @chars) {
+          my $d = $chars[$i++];
+          if ($d eq '{') { $depth++; }
+          elsif ($d eq '}') { last if $depth == 0; $depth--; }
+          $default .= $d; } }
+      if ($open eq '[' && $close eq ']') {
+        push(@params, $default ne '' ? "[Default:$default]" : '[]'); }
+      else {
+        push(@params, "Optional:$open:$close"); } }
+    elsif ($c eq '>' || $c eq '=') {    # processors: skip {…}
+      if ($i < @chars && $chars[$i] eq '{') {
+        my $depth = 0; $i++;
+        while ($i < @chars) {
+          my $d = $chars[$i++];
+          if ($d eq '{') { $depth++; }
+          elsif ($d eq '}') { last if $depth == 0; $depth--; } } } }
+    else { push(@params, '{}'); } }    # v, l, u, e...: approximate as mandatory
+  return join(' ', @params); }
+
+sub a2e_define {
+  my ($mode, $cs, $spec, $body) = @_;
+  my $name = ToString($cs);
+  return if $mode eq 'provide' && LookupDefinition($cs);
+  DefMacroI($cs, a2e_parse_spec(ToString($spec)), $body);
+  return; }
+
+foreach my $pair (['NewDocumentCommand', 'new'], ['RenewDocumentCommand', 'new'],
+  ['DeclareDocumentCommand', 'new'], ['ProvideDocumentCommand', 'provide'],
+  ['NewExpandableDocumentCommand', 'new'], ['DeclareExpandableDocumentCommand', 'new']) {
+  my ($macro, $mode) = @$pair;
+  DefPrimitive("\\$macro {}{}{}", sub {
+      my ($stomach, $cs, $spec, $body) = @_;
+      my @t = $cs->unlist;
+      a2e_define($mode, $t[0], $spec, $body);
+      return; }); }
+
+foreach my $macro (qw(NewDocumentEnvironment RenewDocumentEnvironment
+  DeclareDocumentEnvironment ProvideDocumentEnvironment)) {
+  DefPrimitive("\\$macro {}{}{}{}", sub {
+      my ($stomach, $env, $spec, $begin, $end) = @_;
+      my $name = ToString($env);
+      DefMacroI(T_CS("\\$name"),    a2e_parse_spec(ToString($spec)), $begin);
+      DefMacroI(T_CS("\\end$name"), undef,                          $end);
+      return; }); }
+
+RawTeX(<<'EOTEX');
+\def\IfNoValueTF#1#2#3{\if\relax\detokenize{#1}\relax#2\else#3\fi}
+\def\IfNoValueT#1#2{\IfNoValueTF{#1}{#2}{}}
+\def\IfNoValueF#1#2{\IfNoValueTF{#1}{}{#2}}
+\def\IfValueTF#1#2#3{\IfNoValueTF{#1}{#3}{#2}}
+\def\IfValueT#1#2{\IfNoValueTF{#1}{}{#2}}
+\def\IfValueF#1#2{\IfNoValueTF{#1}{#2}{}}
+\def\IfBooleanTF#1#2#3{\if\relax\detokenize{#1}\relax#3\else#2\fi}
+\def\IfBooleanT#1#2{\IfBooleanTF{#1}{#2}{}}
+\def\IfBooleanF#1#2{\IfBooleanTF{#1}{}{#2}}
+EOTEX
+1;

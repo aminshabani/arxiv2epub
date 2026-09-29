@@ -1,0 +1,7 @@
+# Stub: see tikz.sty.ltxml.
+package LaTeXML::Package::Pool;
+use strict;
+use warnings;
+use LaTeXML::Package;
+RequirePackage('tikz');
+1;

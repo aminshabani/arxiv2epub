@@ -1,0 +1,24 @@
+# Stub binding used after TikZ pictures were pre-rendered to images.
+# Loading real pgf in LaTeXML costs a minute or more; this just swallows the
+# setup commands that may still appear in the preamble or body.
+package LaTeXML::Package::Pool;
+use strict;
+use warnings;
+use LaTeXML::Package;
+
+RequirePackage('graphicx');
+RequirePackage('xcolor');
+
+DefMacro('\tikzset{}',                  '');
+DefMacro('\usetikzlibrary{}',           '');
+DefMacro('\pgfplotsset{}',              '');
+DefMacro('\usepgfplotslibrary{}',       '');
+DefMacro('\pgfplotstableread{}{}',      '');
+DefMacro('\pgfplotstabletypeset[]{}',   '');
+DefMacro('\pgfmathsetmacro{}{}',        '\def#1{#2}');
+DefMacro('\pgfdeclarelayer{}',          '');
+DefMacro('\pgfsetlayers{}',             '');
+DefMacro('\tikzexternalize[]',          '');
+DefMacro('\tikzsetexternalprefix{}',    '');
+RawTeX('\def\tikzstyle#1=[#2]{}\def\tikz#1;{}');
+1;

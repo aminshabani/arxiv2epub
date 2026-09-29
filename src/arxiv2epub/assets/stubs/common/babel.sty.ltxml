@@ -1,0 +1,24 @@
+# Stub babel binding. LaTeXML's own binding loads TeX Live's raw babel.sty,
+# which recent TeX Live versions break (>100 errors, fatal). Language settings
+# don't matter for our output, so just make the user-facing commands no-ops.
+package LaTeXML::Package::Pool;
+use strict;
+use warnings;
+use LaTeXML::Package;
+
+DefMacro('\selectlanguage{}',         '');
+DefMacro('\foreignlanguage{}{}',      '#2');
+DefMacro('\iflanguage{}{}{}',         '#2');
+DefMacro('\languagename',             'english');
+DefMacro('\addto{}{}',                '');
+DefMacro('\babelprovide[]{}',         '');
+DefMacro('\babeltags{}',              '');
+DefMacro('\useshorthands{}',          '');
+DefMacro('\defineshorthand{}{}',      '');
+DefMacro('\languageshorthands{}',     '');
+DefMacro('\shorthandon{}',            '');
+DefMacro('\shorthandoff{}',           '');
+DefEnvironment('{otherlanguage}{}',   '#body');
+DefEnvironment('{otherlanguage*}{}',  '#body');
+DefEnvironment('{hyphenrules}{}',     '#body');
+1;
