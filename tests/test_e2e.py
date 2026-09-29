@@ -22,3 +22,20 @@ def test_convert(paper, tmp_path):
     if shutil.which("epubcheck"):
         r = subprocess.run(["epubcheck", str(epub)], capture_output=True, text=True)
         assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_convert_native_matches_sandbox(tmp_path):
+    """Both paths produce the same book (needs Docker running and the local TeX tools)."""
+    from arxiv2epub import sandbox
+
+    try:
+        sandbox.check_available()
+    except sandbox.SandboxError as e:
+        pytest.skip(str(e))
+    books = {}
+    for mode, flags in (("sandbox", []), ("native", ["--no-sandbox"])):
+        out = tmp_path / mode
+        assert main(["1706.03762", "-o", str(out), *flags]) == 0
+        with zipfile.ZipFile(out / "1706.03762.epub") as z:
+            books[mode] = sorted(n for n in z.namelist() if n.endswith(".xhtml"))
+    assert books["sandbox"] == books["native"]

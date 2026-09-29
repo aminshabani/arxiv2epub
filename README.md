@@ -53,12 +53,12 @@ Then send the file to your Kindle with [Send to Kindle](https://www.amazon.com/s
 
 ## Install
 
-Requirements are macOS or Linux, Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/).
+Requirements are macOS or Linux, Python ≥ 3.11, [uv](https://docs.astral.sh/uv/) and
+Docker. LaTeX, LaTeXML and Ghostscript run inside a Docker image that is built on first use
+(see [Sandboxing](#sandboxing)), so you don't need to install them yourself.
 
 ```sh
-brew install latexml              # the converter
-brew install --cask mactex-no-gui # pdflatex (skip if you already have TeX Live/MacTeX)
-brew install ghostscript          # optional: EPS figures
+brew install --cask docker        # then start Docker Desktop
 brew install epubcheck            # optional: validate output
 
 git clone https://github.com/aminshabani/arxiv2epub.git && cd arxiv2epub
@@ -68,10 +68,14 @@ arxiv2epub doctor                 # checks the dependencies
 
 To run it from the checkout without installing, use `uv run arxiv2epub <id>`.
 
+To run without Docker (`--no-sandbox`), install the tools on your machine instead:
+`brew install latexml ghostscript` and `brew install --cask mactex-no-gui`.
+
 ## Usage
 
 ```
-arxiv2epub <id-or-url> [-o DIR] [--timeout SECONDS] [--no-cache] [--keep-work] [-v]
+arxiv2epub <id-or-url> [-o DIR] [--timeout SECONDS] [--no-cache] [--keep-work]
+           [--no-sandbox] [--sandbox-memory SIZE] [--rebuild-image] [-v]
 ```
 
 The paper can be given in any of these forms:
@@ -82,7 +86,38 @@ The paper can be given in any of these forms:
 The flags are:
 - `--keep-work` keeps the intermediate files in `~/.cache/arxiv2epub/<id>/work` for debugging.
   These include the LaTeXML log and the math and TikZ build logs.
+- `--no-sandbox` runs everything directly on your machine (see below).
+- `--sandbox-memory 8g` raises the sandbox's memory limit (default 4 GB) for unusually large papers.
+- `--rebuild-image` rebuilds the sandbox image, for example to pick up Debian security updates.
 - `-v` shows detailed progress.
+
+## Sandboxing
+
+A paper's source is code written by its authors, and converting it means running
+pdflatex, LaTeXML, Ghostscript and image decoders on it. A malicious or broken paper
+could make these tools:
+- read your files and embed them in the book, e.g. `\input{~/.ssh/id_rsa}`. TeX's
+  `openin_any=p` setting does not prevent reads by absolute path.
+- exploit a bug in one of the parsers.
+- use up memory or disk, e.g. with a decompression bomb image or archive.
+
+That's why everything after the download runs in a Docker container that has:
+- no network access
+- a read-only root filesystem, running as your user ID, with all capabilities dropped and
+  `no-new-privileges` set
+- only the downloaded source bundle mounted (read-only), plus an empty output directory. The
+  finished EPUB is moved out of that directory, and nothing else is.
+- limits of 4 GB memory, 2 CPUs, 512 processes and a 4 GB scratch disk, and a wall-clock
+  limit of 4 × `--timeout`
+
+On macOS, Docker Desktop also runs containers inside a VM. The image is Debian trixie with
+TeX Live 2024 (without its documentation) and LaTeXML 0.8.8. It is several GB and is built
+once. It is tagged with a hash of the package, so it is rebuilt when the code changes. After
+the first build, a rebuild only takes seconds.
+
+With `--no-sandbox`, the conversion runs as you, with full access to your files. There are
+still some limits on your machine: shell escape is disabled, images and archives are
+size-capped, and downloads stop at 500 MB. Only use it for papers you trust.
 
 ## Limitations
 

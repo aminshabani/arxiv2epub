@@ -94,3 +94,26 @@ def test_dangling_links_and_block_spans(tmp_path):
     assert "bib.bib99" not in ch2 and "[99]" in ch2
     assert "transform:" not in ch2
     assert '<div class="ltx_transformed_inner"><table' in ch2
+
+
+def test_oversized_image_dropped(tmp_path, monkeypatch):
+    from PIL import Image
+
+    from arxiv2epub import images
+
+    monkeypatch.setattr(images, "MAX_PIXELS", 10_000)
+    html = tmp_path / "html" / "index.html"
+    html.parent.mkdir()
+    Image.new("L", (50, 50), 255).save(html.parent / "ok.png")
+    Image.new("L", (500, 500), 255).save(html.parent / "bomb.png")
+    html.write_text(HTML.replace('<img src="missing.png" class="ltx_graphics"/>',
+                                 '<img src="ok.png"/><img src="bomb.png"/>'))
+    main = tmp_path / "src" / "main.tex"
+    main.parent.mkdir()
+    main.write_text("\\documentclass{article}\\begin{document}\\end{document}")
+    meta = Metadata("2401.00001", "A Paper", ["A"], "Abstract.", "2024-01-01")
+    book = build_book(html, meta, main, tmp_path / "stage")
+    ch1 = book.chapters[1].body
+    assert "ok.png" in ch1 and "bomb.png" not in ch1
+    assert [r.href for r in book.resources] == ["images/ok.png"]
+    assert not (tmp_path / "stage" / "images" / "bomb.png").exists()

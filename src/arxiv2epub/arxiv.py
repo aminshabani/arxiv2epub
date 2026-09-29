@@ -12,6 +12,7 @@ import httpx
 
 USER_AGENT = "arxiv2epub/0.1 (personal e-reader conversion tool)"
 CACHE_DIR = Path.home() / ".cache" / "arxiv2epub"
+MAX_DOWNLOAD_BYTES = 500 << 20  # largest arXiv sources are a few hundred MB
 
 _NEW_ID = r"\d{4}\.\d{4,5}(?:v\d+)?"
 _OLD_ID = r"[a-z\-]+(?:\.[A-Z]{2})?/\d{7}(?:v\d+)?"
@@ -60,17 +61,21 @@ def _client() -> httpx.Client:
     )
 
 
-def _get(client: httpx.Client, url: str, **kw) -> httpx.Response:
-    """GET with retries on arXiv's rate limiting (429) and transient 5xx errors."""
+def _get(client: httpx.Client, url: str, stream: bool = False, **kw) -> httpx.Response:
+    """GET with retries on arXiv's rate limiting (429) and transient 5xx errors.
+
+    With ``stream``, the body is not read; the caller must close the response.
+    """
     for attempt in range(5):
         try:
-            r = client.get(url, **kw)
+            r = client.send(client.build_request("GET", url, **kw), stream=stream)
         except httpx.TransportError as e:
             if attempt == 4:
                 raise ArxivError(f"Network error talking to arXiv: {e}") from e
         else:
             if r.status_code not in (429, 500, 502, 503, 504):
                 return r
+            r.close()
             if attempt == 4:
                 raise ArxivError(f"arXiv is not responding (HTTP {r.status_code}); try again later.")
         time.sleep(3 * 2**attempt)  # arXiv asks for >= 3s between requests
@@ -108,11 +113,31 @@ def download_source(arxiv_id: str, use_cache: bool = True) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".part")
     with _client() as c:
-        r = _get(c, f"https://arxiv.org/src/{arxiv_id}")
-    if r.status_code == 404:
-        raise ArxivError(f"No source available for {arxiv_id}")
-    if r.is_error:
-        raise ArxivError(f"Downloading the source failed (HTTP {r.status_code})")
-    tmp.write_bytes(r.content)
+        r = _get(c, f"https://arxiv.org/src/{arxiv_id}", stream=True)
+        try:
+            if r.status_code == 404:
+                raise ArxivError(f"No source available for {arxiv_id}")
+            if r.is_error:
+                raise ArxivError(f"Downloading the source failed (HTTP {r.status_code})")
+            _save_limited(r, tmp)
+        finally:
+            r.close()
     tmp.replace(dest)
     return dest
+
+
+def _save_limited(r: httpx.Response, path: Path) -> None:
+    """Stream a response body to ``path``, aborting past ``MAX_DOWNLOAD_BYTES``."""
+    size = 0
+    try:
+        with path.open("wb") as f:
+            for chunk in r.iter_bytes():
+                size += len(chunk)
+                if size > MAX_DOWNLOAD_BYTES:
+                    raise ArxivError(
+                        f"Source is larger than {MAX_DOWNLOAD_BYTES >> 20} MB; refusing to download."
+                    )
+                f.write(chunk)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise

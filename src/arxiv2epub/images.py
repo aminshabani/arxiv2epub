@@ -26,7 +26,7 @@ class ImageTooLarge(Exception):
     pass
 
 
-def safe_dpi(rect: pymupdf.Rect, dpi: float, max_width: int | None = None) -> float:
+def safe_dpi(rect: pymupdf.Rect, dpi: int, max_width: int | None = None) -> int:
     """Lower ``dpi`` so rendering ``rect`` (in pt) stays within ``MAX_PIXELS``.
 
     With ``max_width``, also avoid rendering wider than the image will end up.
@@ -38,7 +38,7 @@ def safe_dpi(rect: pymupdf.Rect, dpi: float, max_width: int | None = None) -> fl
     if max_width:
         # Render at 2x the final width at most so the downscale stays sharp.
         dpi = min(dpi, 2 * max_width / w_in)
-    return dpi
+    return max(1, int(dpi))  # PyMuPDF wants an integer
 
 
 def _open(path: Path) -> Image.Image:
@@ -52,6 +52,9 @@ def _open(path: Path) -> Image.Image:
         return Image.open(path)
     finally:
         Image.MAX_IMAGE_PIXELS = limit
+
+
+_LEN = re.compile(r"(-?[\d.]+)\s*pt")
 
 
 def _parse_box(options: str, key: str) -> list[float] | None:

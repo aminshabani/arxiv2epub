@@ -13,6 +13,7 @@ Used for math formulas and for pre-rendering TikZ pictures.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -24,6 +25,17 @@ import pymupdf
 log = logging.getLogger(__name__)
 
 BORDER_PT = 1.0
+
+
+def tex_env() -> dict[str, str]:
+    """Environment for running TeX on untrusted source.
+
+    No shell escape at all (not even TeX Live's restricted list) and writes
+    only below the working directory. This does *not* stop reads of absolute
+    paths (``\\input{/etc/hosts}`` works even with ``openin_any=p``); only the
+    Docker sandbox (see sandbox.py) keeps the paper away from your files.
+    """
+    return {**os.environ, "shell_escape": "f", "openout_any": "p"}
 
 _BEGIN_DOC = re.compile(r"^[^%\n]*?\\begin\s*\{document\}", re.MULTILINE)
 _DIMS = re.compile(r"^A2E-DIMS-(\d+)=([\d.]+)pt,([\d.]+)pt,([\d.]+)pt", re.MULTILINE)
@@ -198,7 +210,7 @@ def _compile(doc: str, n_bodies: int, src_dir: Path, out_dir: Path, job: str,
     try:
         subprocess.run(
             [engine, "-interaction=nonstopmode", f"-output-directory={out_dir}", f"{job}.tex"],
-            cwd=src_dir, capture_output=True, timeout=timeout,
+            cwd=src_dir, capture_output=True, timeout=timeout, env=tex_env(),
         )
     except subprocess.TimeoutExpired:
         log.warning("%s compile timed out", job)
@@ -235,7 +247,7 @@ def build_aux(main_tex: Path, build_dir: Path, timeout: int = 600) -> Path | Non
         subprocess.run(
             [engine, "-interaction=nonstopmode", "-draftmode",
              f"-output-directory={build_dir}", main_tex.name],
-            cwd=main_tex.parent, capture_output=True, timeout=timeout,
+            cwd=main_tex.parent, capture_output=True, timeout=timeout, env=tex_env(),
         )
     except subprocess.TimeoutExpired:
         log.warning("full-paper compile timed out; citations in tables may show as [?]")

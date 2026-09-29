@@ -85,3 +85,27 @@ def test_check_convertible_rejects_pdf_wrapper(tmp_path):
     real = tmp_path / "main.tex"
     real.write_bytes(DOC)
     check_convertible(real)
+
+
+def test_gzip_bomb_rejected(tmp_path, monkeypatch):
+    import arxiv2epub.source as source
+
+    monkeypatch.setattr(source, "MAX_UNPACKED_BYTES", 1000)
+    bundle = tmp_path / "src.bin"
+    bundle.write_bytes(gzip.compress(b"\0" * 100_000))
+    with pytest.raises(SourceError, match="expands"):
+        extract(bundle, tmp_path / "x")
+
+
+def test_tar_limits(tmp_path, monkeypatch):
+    import arxiv2epub.source as source
+
+    bundle = tmp_path / "src.bin"
+    bundle.write_bytes(make_tar({"main.tex": DOC, "big.dat": b"\0" * 5000}, compress=False))
+    monkeypatch.setattr(source, "MAX_UNPACKED_BYTES", 4000)
+    with pytest.raises(SourceError, match="expands"):
+        extract(bundle, tmp_path / "x")
+    monkeypatch.setattr(source, "MAX_UNPACKED_BYTES", 1 << 20)
+    monkeypatch.setattr(source, "MAX_MEMBERS", 1)
+    with pytest.raises(SourceError, match="files"):
+        extract(bundle, tmp_path / "y")
